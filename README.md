@@ -10,6 +10,8 @@
 | <p align="center"><img src="./data/test_2.jpg" width="600"/></p> | <p align="center"><img src="./output/res_2.jpg" width="600"/></p> |
 
 ## 🎥 Demos
+> ⚠️ **Note**: GIFs may take time to load (~20 MB each). If not loading, check [`./data/`](./data/) folder.
+
 <p align="center">
   <img src="./data/out_1_small.gif" width="70%" />
   <img src="./data/out_2_small.gif" width="70%" />
