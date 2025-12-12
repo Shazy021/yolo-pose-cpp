@@ -1,0 +1,83 @@
+`# C++ Build artifacts
+build/
+out/
+*.exe
+*.dll
+*.lib
+*.pdb
+*.ilk
+*.obj
+*.o
+*.a
+*.so
+*.dSYM/
+*.pyc
+__pycache__/
+
+# Visual Studio
+.vs/
+.vscode/
+*.sln
+*.vcxproj
+*.vcxproj.user
+*.opensdf
+*.sdf
+*.cache
+*.log
+x64/
+Debug/
+Release/
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+Makefile
+cmake_install.cmake
+install_manifest.txt
+compile_commands.json
+
+# Docker
+.dockerignore
+
+# Python / Ultralytics
+__pycache__/
+*.pyc
+.pytest_cache/
+.coverage
+.pip/
+venv/
+env/
+ultralytics/
+torch/
+onnx/
+
+# Models (keep .onnx, ignore .pt and temp files)
+*.pt
+*.bin
+*.weights
+
+# Output directories
+results/
+logs/
+
+# OS generated
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# IDE
+.idea/
+*.swp
+*.swo
+*~
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+
+# etc
+third_party/
+comm.txt
