@@ -34,8 +34,8 @@ def parse_args():
     parser.add_argument(
         "--opset",
         type=int,
-        default=12,
-        help="ONNX opset version (default: 12)",
+        default=17,
+        help="ONNX opset version (default: 17)",
     )
     parser.add_argument(
         "--dynamic",

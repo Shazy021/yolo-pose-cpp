@@ -30,12 +30,15 @@ void print_usage(const char* program_name) {
         << "Options:\n"
         << "  -i, --input <path>     Input file (image/video) or '0' for webcam\n"
         << "  -o, --output <path>    Output file (optional, for saving results)\n"
-        << "  -m, --model <path>     ONNX model path (optional, default: yolo11n-pose.onnx)\n"
+        << "  -m, --model <path>     ONNX model path (optional, default: yolov8n-pose.onnx)\n"
+        << "  -W, --width <int>      Input width (default: 640, must be multiple of 32)\n"
+        << "  -H, --height <int>     Input height (default: 640, must be multiple of 32)\n"
         << "  -h, --help             Show this help message\n\n"
         << "Examples:\n"
-        << "  " << program_name << " -i data/image.jpg -m models/yolo11n-pose.onnx\n"
-        << "  " << program_name << " -i data/video.mp4 -o output/output.mp4\n"
-        << "  " << program_name << " -i 0 -m models/yolo11n-pose.onnx\n";
+        << "  " << program_name << " -i data/image.jpg -m models/yolov8n-pose.onnx\n"
+        << "  " << program_name << " -i data/video.mp4 -o output/output.mp4 -W 1280 -H 1280\n"
+        << "  " << program_name << " -i data/video.mp4 -m models/yolo11n-pose.onnx -W 1280\n"
+        << "  " << program_name << " -i 0 -W 480 -H 480\n";
 }
 
 InputConfig parse_arguments(int argc, char** argv) {
@@ -78,6 +81,24 @@ InputConfig parse_arguments(int argc, char** argv) {
         else if (arg == "-m" || arg == "--model") {
             if (i + 1 < argc) {
                 config.model_path = argv[++i];
+            }
+        }
+        else if (arg == "-W" || arg == "--width") {
+            if (i + 1 < argc) {
+                config.input_width = std::atoi(argv[++i]);
+                if (config.input_width % 32 != 0) {
+                    std::cerr << "Error: Input width must be a multiple of 32!" << std::endl;
+                    exit(1);
+                }
+            }
+        }
+        else if (arg == "-H" || arg == "--height") {
+            if (i + 1 < argc) {
+                config.input_height = std::atoi(argv[++i]);
+                if (config.input_height % 32 != 0) {
+                    std::cerr << "Error: Input height must be a multiple of 32!" << std::endl;
+                    exit(1);
+                }
             }
         }
     }

@@ -19,8 +19,8 @@
 </p>
 
 ## ✨ Features
-
 - **Multi-model support**: YOLOv8n/YOLO11n pose ONNX models
+- **Dynamic input size**: Configurable at runtime (480×480, 640×640, 1280×640, etc.)
 - **Full pose pipeline**: letterbox → ONNX inference → NMS → 17 COCO keypoints + skeleton
 - **Production CLI**: images/videos/webcam + output saving
 - **Docker**: **2GB** (optimized, no PyTorch) / **23GB** (with ultralytics export)
@@ -37,6 +37,23 @@ git clone https://github.com/Shazy021/yolo-pose-cpp.git
 cd yolo-pose-cpp
 ```
 
+### 2. CLI Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `-i, --input` | `str` | **required** | Input file path (image/video) or `0` for webcam |
+| `-o, --output` | `str` | *none* | Output file path (optional, saves result if specified) |
+| `-m, --model` | `str` | Platform-dependent* | Path to ONNX model file |
+| `-W, --width` | `int` | `640` | Input width for inference (must be multiple of 32) |
+| `-H, --height` | `int` | `640` | Input height for inference (must be multiple of 32) |
+| `-h, --help` | `flag` | - | Show help message |
+
+**Default model paths:**
+- Windows: `models/yolov8n-pose.onnx`
+- Docker: `/app/models/yolov8n-pose.onnx`
+
+> **Note**: Input dimensions must be **multiples of 32** (YOLO stride requirement). Valid examples: 320, 480, 640, 960, 1280.
+
 ### Docker (Recommended, 2GB image)
 
 
@@ -44,6 +61,8 @@ cd yolo-pose-cpp
 |------|---------|
 | Build image | `docker compose build` |
 | Image → image | `docker compose run --rm pose -i /app/data/test_1.jpg -o /app/output/res_1.jpg` |
+| Image (inference 1280×1280) | `docker compose run --rm pose -i /app/data/test_2.jpg -o /app/output/res_hd.jpg -W 1280 -H 1280` |
+| Image (inference 480×1280) | `docker compose run --rm pose -i /app/data/test_2.jpg -o /app/output/res_custom_res.jpg -W 480 -H 1280` |
 | Video → video | `docker compose run --rm pose -i /app/data/test_vid.mp4 -o /app/output/res_vid.mp4` |
 | Use YOLO11 | `docker compose run --rm pose -m /app/models/yolo11n-pose.onnx -i /app/data/test_2.jpg -o /app/output/res_y11.jpg` |
 
@@ -52,13 +71,13 @@ cd yolo-pose-cpp
 | Task | Command (example) |
 |------|-------------------|
 | Image → image | `PoseEstimation.exe -i data\test_1.jpg -o output\res_1.jpg` |
+| Image (custom inference size) | `PoseEstimation.exe -i data\test_1.jpg -o output\res_480.jpg -W 480 -H 480` |
 | Video → video | `PoseEstimation.exe -i data\Test_vid.mp4 -o output\res_vid.mp4` |
+| Video (high-res) | `PoseEstimation.exe -i data\Test_vid.mp4 -o output\res_hd.mp4 -W 1280 -H 1280` |
 | YOLO11 model | `PoseEstimation.exe -m models\yolo11n-pose.onnx -i data\test_2.jpg -o output\res_2.jpg` |
 | Webcam | `PoseEstimation.exe -i 0` |
 
 ## 📦 Models
-
-This repository uses **Git LFS** for ONNX models:
 
 ```
 models/
@@ -70,6 +89,18 @@ You can either use these models or export your own from Ultralytics checkpoints.
 
 ### Export your own models (host, optional)
 
+#### Export script parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `--model` | `str` | **required** | Path to YOLO pose `.pt` model or model name (e.g., `yolov8n-pose.pt`, `yolo11n-pose.pt`) |
+| `--output-dir` | `str` | `models` | Directory to save exported ONNX model |
+| `--imgsz` | `int [int]` | `640` | Image size for export (single value or H W pair) |
+| `--opset` | `int` | `17` | ONNX opset version (use 17+ for ONNX Runtime 1.16+) |
+| `--dynamic` | `flag` | `False` | Enable dynamic input shapes (allows runtime size changes) |
+| `--simplify` | `flag` | `False` | Run ONNX simplifier to optimize graph |
+
+#### Installation
 ```bash
 pip install ultralytics onnx
 ```
@@ -85,13 +116,17 @@ YOLO11 pose → ONNX
 python scripts/export_yolo_pose_onnx.py
 --model yolo11n-pose.pt
 --output-dir models
+--dynamic
+--simplify
 ```
+
 Then:
 ```bash
 docker compose run --rm pose
 -m /app/models/your_model.onnx
 -i /app/data/test_1.jpg
 -o /app/output/res_custom.jpg
+-W 960 -H 960
 ```
 ---
 
@@ -130,15 +165,32 @@ After uncommenting and rebuilding, the image will:
 
 If you already have a container with Python and Ultralytics available, you can run the export script **once**.
 
-Example (from project root on Windows, using the existing image):
+Example (from project root, using the existing image):
+
+Windows (CMD):
 ```bash
 docker run --rm ^
---entrypoint python3 ^
--v "%cd%/models:/app/models" ^
-pose-estimation-cpu ^
-/app/scripts/export_yolo_pose_onnx.py ^
---model yolov8n-pose.pt ^
---output-dir /app/models
+  --entrypoint python3 ^
+  -v "%cd%/models:/app/models" ^
+  pose-estimation-cpu ^
+  /app/scripts/export_yolo_pose_onnx.py ^
+  --model yolov8n-pose.pt ^
+  --output-dir /app/models ^
+  --dynamic ^
+  --simplify
+```
+
+Linux/macOS:
+```bash
+docker run --rm \
+  --entrypoint python3 \
+  -v "$(pwd)/models:/app/models" \
+  pose-estimation-cpu \
+  /app/scripts/export_yolo_pose_onnx.py \
+  --model yolov8n-pose.pt \
+  --output-dir /app/models \
+  --dynamic \
+  --simplify
 ```
 
 
@@ -166,17 +218,33 @@ For most users the recommended approach is still:
 ```
 [Image/Video/Webcam] → input_handler → pipeline →
 ├── preprocess_letterbox (BGR→NCHW , letterbox scale/pad)
-├── OnnxEngine (ONNX Runtime CPU, opset 12+)
+├── OnnxEngine (ONNX Runtime CPU, opset 17+, dynamic input)
 ├── yolo_pose_postprocess ( → Person structs + NMS)
 └── visualize_results (bbox(green)+keypoints(red)+skeleton(blue))
 ```
 ---
 
+## ⚙️ Performance Tips
+
+### Input Size vs Speed Trade-off
+
+| Input Size | Speed | Use Case |
+|------------|----------------|----------|
+| 320×320 | faster | Fast tracking, low-res |
+| 480×480 | faster | Balanced speed/accuracy |
+| 480×960 | faster | Portrait/vertical videos |
+| 640×640 | **Default** | Standard accuracy |
+| 960×960 | slower | High-res images |
+| 1280×1280 | slower | Maximum accuracy, distant persons |
+
+
+---
+
 ## ⚠️ Limitations
 
 - CPU-only (no CUDA / TensorRT yet)
-- Fixed input size 640×640 (configurable in code yet)
 - COCO 17-keypoint pose only
+- Input dimensions must be multiples of 32 (YOLO architecture requirement)
 
 ## 📄 License
 

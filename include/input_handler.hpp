@@ -18,13 +18,28 @@ struct InputConfig {
     std::string output_path; ///< Optional output file path.
     bool save_output;        ///< Whether to save processed output.
     std::string model_path;  ///< Path to ONNX model.
+    int input_width = 640;   ///< Network input width (default: 640).
+    int input_height = 640;   ///< Network input height (default: 640).
 };
 
-/// Detect input type based on path or special values like "0" / "webcam".
+/// Detect input type from file path or special values.
+/**
+ * Recognizes image extensions (jpg, png, bmp), video extensions (mp4, avi, mov, mkv),
+ * and special webcam identifiers ("0", "webcam").
+ *
+ * \param path Input file path or identifier.
+ * \return Detected input type.
+ */
 InputType detect_input_type(const std::string& path);
 
-/// Parse command-line arguments into InputConfig.
-/// Exits the application on invalid arguments.
+/// Parse command-line arguments and detect input type.
+/**
+ * Supports: -i/--input, -o/--output, -m/--model, -W/--width, -H/--height, -h/--help
+ *
+ * \param argc Argument count.
+ * \param argv Argument values.
+ * \return Parsed configuration with input type.
+ */
 InputConfig parse_arguments(int argc, char** argv);
 
 /// Print CLI usage/help message to stdout.

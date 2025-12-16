@@ -5,9 +5,6 @@
 #include "input_handler.hpp"
 #include "pipeline.hpp"
 
-/// Target network input dimensions (width, height)
-const int TARGET_W = 640;
-const int TARGET_H = 640;
 
 int main(int argc, char** argv) {
 #ifdef _WIN32
@@ -27,17 +24,17 @@ int main(int argc, char** argv) {
     switch (config.type) {
     case InputType::IMAGE:
         std::cout << "Processing image: " << config.path << std::endl;
-        process_image(config.path, config.output_path, engine, TARGET_W, TARGET_H);
+        process_image(config.path, config.output_path, engine, config.input_width, config.input_height);
         break;
 
     case InputType::VIDEO:
         std::cout << "Processing video: " << config.path << std::endl;
-        process_video(config.path, config.output_path, engine, false, TARGET_W, TARGET_H);
+        process_video(config.path, config.output_path, engine, false, config.input_width, config.input_height);
         break;
 
     case InputType::WEBCAM:
         std::cout << "Starting webcam..." << std::endl;
-        process_video("0", config.output_path, engine, true, TARGET_W, TARGET_H);
+        process_video("0", config.output_path, engine, true, config.input_width, config.input_height);
         break;
 
     default:
