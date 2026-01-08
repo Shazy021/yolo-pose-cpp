@@ -1,6 +1,6 @@
 ﻿# 🚀 YOLO Pose Estimation (C++/ONNX Runtime/CPU/Docker)
 
-**CPU** real-time human pose estimation using **YOLOv8/YOLO11 pose models** with **native C++**, **ONNX Runtime**, and **Docker deployment**.
+**Human pose estimation** using **YOLOv8/YOLO11 pose models** with **native C++**, **ONNX Runtime**, and **Docker deployment**.
 
 ## 🖼️ Example before / after
 
@@ -20,6 +20,7 @@
 
 ## ✨ Features
 - **Multi-model support**: YOLOv8n/YOLO11n pose ONNX models
+- **Batch Inference**: Process multiple frames simultaneously for higher throughput (1-32 frames)
 - **Dynamic input size**: Configurable at runtime (480×480, 640×640, 1280×640, etc.)
 - **Full pose pipeline**: letterbox → ONNX inference → NMS → 17 COCO keypoints + skeleton
 - **Production CLI**: images/videos/webcam + output saving
@@ -46,6 +47,7 @@ cd yolo-pose-cpp
 | `-m, --model` | `str` | Platform-dependent* | Path to ONNX model file |
 | `-W, --width` | `int` | `640` | Input width for inference (must be multiple of 32) |
 | `-H, --height` | `int` | `640` | Input height for inference (must be multiple of 32) |
+| `-b, --batch`  | `int` | `1`| Batch size for video inference (range: 1-32)|
 | `-h, --help` | `flag` | - | Show help message |
 
 **Default model paths:**
@@ -76,6 +78,33 @@ cd yolo-pose-cpp
 | Video (high-res) | `PoseEstimation.exe -i data\Test_vid.mp4 -o output\res_hd.mp4 -W 1280 -H 1280` |
 | YOLO11 model | `PoseEstimation.exe -m models\yolo11n-pose.onnx -i data\test_2.jpg -o output\res_2.jpg` |
 | Webcam | `PoseEstimation.exe -i 0` |
+
+## 🎮 Experimental GPU Support (Windows)
+
+> ⚠️ **Experimental Feature**: GPU acceleration is currently tested only on Windows with NVIDIA GPUs. Docker GPU support is not tested YET.
+
+### Requirements
+
+
+- CUDA Toolkit 12.x
+- cuDNN 9.x
+- ONNX Runtime GPU 1.23.2+ (included in project)
+
+
+### Automatic GPU Detection
+
+The application automatically detects and uses GPU if available:
+
+1. Attempts **TensorRT** provider (best performance, not yet fully tested)
+2. Falls back to **CUDA** provider (tested and working)
+3. Falls back to **CPU** if GPU unavailable
+
+Check console output on startup to see which provider is active:
+
+```
+[ONNX] Available providers: TensorrtExecutionProvider CUDAExecutionProvider CPUExecutionProvider
+[ONNX] Using CUDA ExecutionProvider (GPU)
+```
 
 ## 📦 Models
 
@@ -242,13 +271,14 @@ For most users the recommended approach is still:
 
 ## ⚠️ Limitations
 
-- CPU-only (no CUDA / TensorRT yet)
+- GPU support is experimental (Windows only, Docker GPU not tested YET)
 - COCO 17-keypoint pose only
 - Input dimensions must be multiples of 32 (YOLO architecture requirement)
+- Batch size must be between 1 and 32
 
 ## 📄 License
 
 MIT License
 ---
 
-**CPU pose estimation**
+**Pose estimation**
