@@ -14,11 +14,21 @@ struct OnnxOutput {
 /**
  * Supports single input/output models with dynamic batch size.
  * Automatically detects input/output names and model input shape.
+ * 
+ * Execution provider priority (best to worst):
+ * 1. TensorRT - Optimized for NVIDIA GPUs with graph optimization
+ * 2. CUDA - Standard NVIDIA GPU acceleration
+ * 3. CPU - Fallback for systems without GPU support
  */
 class OnnxEngine {
 public:
 	/// Create engine and load ONNX model from disk.
 	/**
+	 * Automatically selects the best available execution provider:
+	 * - TensorRT: Maximum performance with JIT optimization
+	 * - CUDA: High performance GPU acceleration
+	 * - CPU: Multi-threaded fallback
+	 * 
 	 * \param model_path Path to ONNX model file (.onnx).
 	 * \throws std::runtime_error if model file not found or invalid.
 	 */
@@ -37,6 +47,15 @@ public:
 	/// Get model input shape [N,C,H,W] from loaded ONNX model.
 	const std::vector<int64_t>& modelInputShape() const { return model_input_shape_; }
 
+	/// Check if GPU execution provider is active.
+	/**
+	 * Returns true if using TensorRT or CUDA, false if using CPU.
+	 * Used by preprocessing to determine optimal memory layout.
+	 *
+	 * \return true if GPU-accelerated, false otherwise.
+	 */
+	bool isUsingGPU() const { return using_gpu_; }
+
 private:
 	Ort::Env env_;
 	Ort::SessionOptions session_options_;
@@ -49,4 +68,5 @@ private:
 	std::vector<const char*> output_names_;
 
 	std::vector<int64_t> model_input_shape_;
+	bool using_gpu_ = false; ///< True if TensorRT or CUDA is active.
 };

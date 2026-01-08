@@ -15,7 +15,9 @@ if(NOT DEFINED ONNXRUNTIME_DIR)
     if(DEFINED ENV{ONNXRUNTIME_DIR})
         set(ONNXRUNTIME_DIR $ENV{ONNXRUNTIME_DIR})
     else()
-        set(ONNXRUNTIME_DIR "${CMAKE_SOURCE_DIR}/third_party/onnxruntime")
+        # Fallback to HARDCODED paths for local Windows development
+        set(CUDNN_DIR "C:/Program Files/NVIDIA/CUDNN/v9.17")
+        set(ONNXRUNTIME_DIR "${CMAKE_SOURCE_DIR}/third_party/onnxruntime-win-x64-gpu-1.23.2")
     endif()
 endif()
 
@@ -38,7 +40,7 @@ message(STATUS "ONNX Runtime library: ${ONNXRT_LIBRARY}")
 # -----------------------------
 if(WIN32)
     # Adjust this path if you installed OpenCV differently
-    set(OpenCV_DIR "C:/opencv/opencv/build")
+    set(OpenCV_DIR "C:/opencv/build_cuda/install")
 endif()
 
 find_package(OpenCV REQUIRED)
@@ -99,4 +101,42 @@ if(WIN32)
                 "${ONNXRT_LIB_DIR}/onnxruntime.dll"
                 "$<TARGET_FILE_DIR:PoseEstimation>/onnxruntime.dll"
     )
+
+    # Copy CUDA execution provider DLLs if available
+    if(EXISTS "${ONNXRT_LIB_DIR}/onnxruntime_providers_cuda.dll")
+        add_custom_command(TARGET PoseEstimation POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${ONNXRT_LIB_DIR}/onnxruntime_providers_cuda.dll"
+                    "$<TARGET_FILE_DIR:PoseEstimation>/onnxruntime_providers_cuda.dll"
+        )
+        add_custom_command(TARGET PoseEstimation POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${ONNXRT_LIB_DIR}/onnxruntime_providers_shared.dll"
+                    "$<TARGET_FILE_DIR:PoseEstimation>/onnxruntime_providers_shared.dll"
+        )
+        message(STATUS "ONNX Runtime CUDA DLLs will be copied")
+    endif()
+
+    # copy ALL cuDNN 9 DLLs
+    set(CUDNN_BIN_DIR "${CUDNN_DIR}/bin/12.9")
+    
+    if(EXISTS "${CUDNN_BIN_DIR}/cudnn64_9.dll")
+        file(GLOB CUDNN_DLLS "${CUDNN_BIN_DIR}/cudnn*64_9.dll")
+        
+        # Copy each found DLL to the executable directory
+        foreach(dll ${CUDNN_DLLS})
+            get_filename_component(dll_name ${dll} NAME)
+            add_custom_command(TARGET PoseEstimation POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                        "${dll}"
+                        "$<TARGET_FILE_DIR:PoseEstimation>/${dll_name}"
+            )
+        endforeach()
+        
+        message(STATUS "cuDNN 9 DLLs will be copied from ${CUDNN_BIN_DIR}")
+        message(STATUS "Found cuDNN DLLs: ${CUDNN_DLLS}")
+    else()
+        message(WARNING "cuDNN DLLs not found at ${CUDNN_BIN_DIR}")
+    endif()
+
 endif()
