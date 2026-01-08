@@ -19,7 +19,8 @@ struct InputConfig {
     bool save_output;        ///< Whether to save processed output.
     std::string model_path;  ///< Path to ONNX model.
     int input_width = 640;   ///< Network input width (default: 640).
-    int input_height = 640;   ///< Network input height (default: 640).
+    int input_height = 640;  ///< Network input height (default: 640).
+    int batch_size = 1;      ///< Number of frames to process in parallel (default: 1, range: 1-32).
 };
 
 /// Detect input type from file path or special values.
@@ -34,7 +35,7 @@ InputType detect_input_type(const std::string& path);
 
 /// Parse command-line arguments and detect input type.
 /**
- * Supports: -i/--input, -o/--output, -m/--model, -W/--width, -H/--height, -h/--help
+ * Supports: -i/--input, -o/--output, -m/--model, -W/--width, -H/--height, -b/--batch, -h/--help
  *
  * \param argc Argument count.
  * \param argv Argument values.

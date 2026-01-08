@@ -8,7 +8,8 @@ void yolo_pose_postprocess(
     float CONF_THRESHOLD,
     float NMS_THRESHOLD)
 {
-    // Expected output shape: [1, 56, N] or [1, N, 56].
+    // Validate output shape: must be 3D tensor with batch size 1
+    // Shape examples: [1, 56, 8400] or [1, 8400, 56]
     if (output_shape.size() != 3 || output_shape[0] != 1) {
         throw std::runtime_error("Unexpected output shape");
     }
@@ -59,6 +60,7 @@ void yolo_pose_postprocess(
         float conf = row[4];
         if (conf < CONF_THRESHOLD) continue;
 
+        // Extract bounding box in letterbox coordinate space
         float x_center = row[0];
         float y_center = row[1];
         float w_box = row[2];
@@ -72,7 +74,7 @@ void yolo_pose_postprocess(
 
         boxes.emplace_back(x, y, w, h);
         confidences.push_back(conf);
-        class_ids.push_back(i);
+        class_ids.push_back(i); // Store original row index for keypoint extraction
     }
 
     // Apply Non-Maximum Suppression to filter overlapping boxes
@@ -81,7 +83,7 @@ void yolo_pose_postprocess(
     persons.clear();
     persons.reserve(indices.size());
 
-    // Collect final Person objects with keypoints
+    // Second pass: extract keypoints for NMS-filtered detections
     for (int idx : indices) {
         Person person;
         person.bbox = boxes[idx];
@@ -93,14 +95,18 @@ void yolo_pose_postprocess(
         person.keypoints.clear();
         person.keypoints.reserve(17); // COCO-style 17 keypoints
 
+        // Extract 17 keypoints (COCO pose format)
+        // Keypoints: nose, eyes, ears, shoulders, elbows, wrists, hips, knees, ankles
         for (int kp_idx = 0; kp_idx < 17; ++kp_idx) {
+            // Keypoint data starts at index 5, with 3 values per keypoint
             int base = 5 + kp_idx * 3;
 
             float kp_x = row[base + 0];
             float kp_y = row[base + 1];
             float kp_conf = row[base + 2];
 
-            // Map keypoint back from letterboxed image to original coordinates.
+            // Transform keypoint from letterbox space back to original image space
+            // Apply same inverse transformation as bounding box
             float x = (kp_x - params.pad_w) / params.scale;
             float y = (kp_y - params.pad_h) / params.scale;
 
@@ -112,5 +118,59 @@ void yolo_pose_postprocess(
         }
 
         persons.push_back(std::move(person));
+    }
+}
+
+void yolo_pose_postprocess_batch(
+    const float* output_data,
+    const std::vector<int64_t>& output_shape,
+    const std::vector<LetterboxParams>& params,
+    std::vector<std::vector<Person>>& batch_persons,
+    float CONF_THRESHOLD,
+    float NMS_THRESHOLD)
+{
+    // Validate batch output shape: must be 3D tensor
+    // Expected shapes: [batch_size, 56, num_proposals] or [batch_size, num_proposals, 56]
+    if (output_shape.size() != 3) {
+        throw std::runtime_error("Unexpected batch output shape");
+    }
+
+    int batch_size = static_cast<int>(output_shape[0]);
+    int64_t d1 = output_shape[1];
+    int64_t d2 = output_shape[2];
+
+    // Determine dimensions (handle both possible layouts)
+    int rows = 0, cols = 0;
+    if (d1 == 56) {
+        rows = static_cast<int>(d1);
+        cols = static_cast<int>(d2);
+    }
+    else if (d2 == 56) {
+        rows = static_cast<int>(d2);
+        cols = static_cast<int>(d1);
+    }
+    else {
+        throw std::runtime_error("Unexpected pose dimensions in batch");
+    }
+
+    // Calculate size of output for a single frame
+    // Batch tensor layout: [frame0_data][frame1_data][frame2_data]...
+    size_t single_output_size = rows * cols;
+    batch_persons.resize(batch_size);
+
+    // Process each frame independently
+    // We reuse the single-frame postprocessing function for each frame in the batch
+    for (int b = 0; b < batch_size; ++b) {
+        // Calculate pointer to this frame's data within the batch tensor
+        const float* batch_data = output_data + b * single_output_size;
+
+        // Create single-frame shape for compatibility with existing function
+        // The single-frame function expects [1, 56, N] or [1, N, 56]
+        std::vector<int64_t> single_shape = { 1, d1, d2 };
+
+        // Process this frame using single-frame postprocessing
+        // Results are stored in batch_persons[b]
+        yolo_pose_postprocess(batch_data, single_shape, params[b],
+            batch_persons[b], CONF_THRESHOLD, NMS_THRESHOLD);
     }
 }

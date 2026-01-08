@@ -33,11 +33,13 @@ void print_usage(const char* program_name) {
         << "  -m, --model <path>     ONNX model path (optional, default: yolov8n-pose.onnx)\n"
         << "  -W, --width <int>      Input width (default: 640, must be multiple of 32)\n"
         << "  -H, --height <int>     Input height (default: 640, must be multiple of 32)\n"
+        << "  -b, --batch <int>      Batch size for inference (default: 1, range: 1-32)\n"
         << "  -h, --help             Show this help message\n\n"
         << "Examples:\n"
         << "  " << program_name << " -i data/image.jpg -m models/yolov8n-pose.onnx\n"
         << "  " << program_name << " -i data/video.mp4 -o output/output.mp4 -W 1280 -H 1280\n"
         << "  " << program_name << " -i data/video.mp4 -m models/yolo11n-pose.onnx -W 1280\n"
+        << "  " << program_name << " -i data/video.mp4 -b 4\n"
         << "  " << program_name << " -i 0 -W 480 -H 480\n";
 }
 
@@ -88,6 +90,15 @@ InputConfig parse_arguments(int argc, char** argv) {
                 config.input_width = std::atoi(argv[++i]);
                 if (config.input_width % 32 != 0) {
                     std::cerr << "Error: Input width must be a multiple of 32!" << std::endl;
+                    exit(1);
+                }
+            }
+        }
+        else if (arg == "-b" || arg == "--batch") {
+            if (i + 1 < argc) {
+                config.batch_size = std::atoi(argv[++i]);
+                if (config.batch_size < 1 || config.batch_size > 32) {
+                    std::cerr << "Error: Batch size must be between 1 and 32!" << std::endl;
                     exit(1);
                 }
             }
