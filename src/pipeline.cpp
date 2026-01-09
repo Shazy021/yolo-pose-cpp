@@ -53,7 +53,7 @@ void process_image(const std::string& input_path,
     auto prep = preprocess_letterbox(image, target_w, target_h, engine.isUsingGPU());
 
     // Run inference
-    OnnxOutput out = engine.run(prep.input_tensor, prep.input_shape);
+    OnnxOutput out = engine.run(prep);
 
     // Decode model output into pose detections
     yolo_pose_postprocess(out.data, out.shape, prep.params, persons);
@@ -162,7 +162,7 @@ void process_video(const std::string& input_path,
 
             auto t2 = std::chrono::high_resolution_clock::now();
             // Run batch inference: process all frames in a single forward pass
-            OnnxOutput out = engine.run(prep.input_tensor, prep.input_shape);
+            OnnxOutput out = engine.run(prep);
 
             auto t3 = std::chrono::high_resolution_clock::now();
             // Decode batch output: extract keypoints for all persons in all frames
@@ -194,8 +194,13 @@ void process_video(const std::string& input_path,
 
             frame_count += frame_buffer.size();
 
+            // Print detailed timing information every ~30 processed frames
+            // This ensures consistent log size regardless of batch size
+            static int last_report_frame = 0;
+            const int REPORT_INTERVAL = 30;  // Report every 30 frames
+
             // Print detailed timing information every 30 frames
-            if (frame_count % 30 == 0) {
+            if (frame_count - last_report_frame >= REPORT_INTERVAL) {
                 auto prep_ms = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
                 auto inf_ms = std::chrono::duration_cast<std::chrono::milliseconds>(t3 - t2).count();
                 auto post_ms = std::chrono::duration_cast<std::chrono::milliseconds>(t4 - t3).count();
@@ -205,6 +210,8 @@ void process_video(const std::string& input_path,
                     << "ms (" << (float)inf_ms / batch_size << "ms/frame)"
                     << " | Post: " << post_ms << "ms" << std::endl;
                 std::cout << "Processed " << frame_count << " frames | FPS: " << (int)fps << std::flush;
+
+                last_report_frame = frame_count;
             }
 
         }
