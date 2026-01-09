@@ -7,6 +7,7 @@
 #  if __has_include(<opencv2/cudawarping.hpp>)
 #    include <opencv2/cudawarping.hpp>
 #    include <opencv2/cudaimgproc.hpp>
+#    include <opencv2/cudaarithm.hpp>
 #    define OPENCV_CUDA_AVAILABLE
 #  endif
 #endif
@@ -56,7 +57,7 @@ namespace {
      * Performs resize operation on GPU for maximum performance.
      * Padding is still done on CPU
      */
-    static cv::Mat letterbox_gpu(const cv::Mat& image,
+    static cv::cuda::GpuMat letterbox_gpu(const cv::Mat& image,
         int target_w, int target_h,
         float& scale, int& pad_w, int& pad_h)
     {
@@ -78,25 +79,64 @@ namespace {
         cv::cuda::GpuMat gpu_resized;
         cv::cuda::resize(gpu_image, gpu_resized, cv::Size(new_w, new_h), 0, 0, cv::INTER_LINEAR);
 
-        // Download resized image back to CPU memory
-        cv::Mat resized;
-        gpu_resized.download(resized);
-
-        // Perform padding on CPU
+        // Perform padding
         pad_w = (target_w - new_w) / 2;
         pad_h = (target_h - new_h) / 2;
 
-        cv::Mat padded;
-        cv::copyMakeBorder(resized, padded,
+        cv::cuda::GpuMat padded;
+        cv::cuda::copyMakeBorder(gpu_resized, padded,
             pad_h, target_h - new_h - pad_h,
             pad_w, target_w - new_w - pad_w,
             cv::BORDER_CONSTANT, cv::Scalar(114, 114, 114));
 
         return padded;
     }
+    static void blobFromImage_gpu_nchw(
+        const std::vector<cv::cuda::GpuMat>& batch_frames,
+        cv::cuda::GpuMat& output_buffer,
+        float scale_factor = 1.0f / 255.0f)
+    {
+        if (batch_frames.empty()) return;
+
+        int batch_size = batch_frames.size();
+        int height = batch_frames[0].rows;
+        int width = batch_frames[0].cols;
+        int channels = 3;
+
+        // Выделяем память под ВЕСЬ тензор (как 2D матрица для OpenCV)
+        // Rows = Batch * Channels (например 8*3=24 строки)
+        // Cols = Height * Width (плоская картинка)
+        output_buffer.create(batch_size * channels, height * width, CV_32F);
+
+        std::vector<cv::cuda::GpuMat> ch_split;
+
+        for (int i = 0; i < batch_size; ++i) {
+            // Convert to Float + Normalize
+            cv::cuda::GpuMat float_frame;
+            batch_frames[i].convertTo(float_frame, CV_32F, scale_factor);
+
+            // Split channels (B, G, R)
+            cv::cuda::split(float_frame, ch_split);
+
+            // Копируем каналы в правильные места (HWC -> NCHW)
+            // YOLO хочет RGB, OpenCV дает BGR.
+            // Поэтому берем ch_split[2] (R), [1] (G), [0] (B)
+
+            int offset = i * channels;
+
+            // Red <- BGR[2]
+            ch_split[2].reshape(1, 1).copyTo(output_buffer.row(offset + 0));
+            // Green <- BGR[1]
+            ch_split[1].reshape(1, 1).copyTo(output_buffer.row(offset + 1));
+            // Blue <- BGR[0]
+            ch_split[0].reshape(1, 1).copyTo(output_buffer.row(offset + 2));
+        }
+    }
 #endif
 
 } // namespace
+
+
 
 PreprocessResult preprocess_letterbox(
     const cv::Mat& frame,
@@ -120,10 +160,11 @@ PreprocessResult preprocess_letterbox(
             // Verify that at least one CUDA-capable GPU is present
             int gpu_count = cv::cuda::getCudaEnabledDeviceCount();
             if (gpu_count > 0) {
-                padded = letterbox_gpu(
+                cv::cuda::GpuMat gpu_padded = letterbox_gpu(
                     frame, target_w, target_h,
                     res.params.scale, res.params.pad_w, res.params.pad_h
                 );
+                gpu_padded.download(padded);
                 gpu_used = true;
             }
         }
@@ -211,37 +252,36 @@ BatchPreprocessResult preprocess_letterbox_batch(
             try {
                 int gpu_count = cv::cuda::getCudaEnabledDeviceCount();
                 if (gpu_count > 0) {
-                    // Upload frame to GPU memory
-                    cv::cuda::GpuMat gpu_image;
-                    gpu_image.upload(frames[i]);
 
-                    // Calculate letterbox parameters
-                    int img_w = frames[i].cols;
-                    int img_h = frames[i].rows;
-                    float scale = std::min((float)target_w / img_w, (float)target_h / img_h);
-                    params.scale = scale;
+                    // === [NEW] Full GPU Pipeline ===
+                    std::vector<cv::cuda::GpuMat> processed_frames_gpu;
+                    processed_frames_gpu.reserve(batch_size);
 
-                    int new_w = (int)(img_w * scale);
-                    int new_h = (int)(img_h * scale);
+                    for (int i = 0; i < batch_size; ++i) {
+                        LetterboxParams params;
+                        params.input_w = target_w;
+                        params.input_h = target_h;
+                        params.orig_w = frames[i].cols;
+                        params.orig_h = frames[i].rows;
 
-                    // GPU resize operation
-                    cv::cuda::GpuMat resized;
-                    cv::cuda::resize(gpu_image, resized, cv::Size(new_w, new_h), 0, 0, cv::INTER_LINEAR);
+                        // Вызываем обновленную letterbox_gpu (возвращает GpuMat)
+                        // БЕЗ download!
+                        cv::cuda::GpuMat gpu_padded = letterbox_gpu(
+                            frames[i], target_w, target_h,
+                            params.scale, params.pad_w, params.pad_h
+                        );
 
-                    // Download resized result
-                    resized.download(padded);
+                        processed_frames_gpu.push_back(gpu_padded);
+                        res.params.push_back(params);
+                    }
 
-                    // CPU padding
-                    params.pad_w = (target_w - new_w) / 2;
-                    params.pad_h = (target_h - new_h) / 2;
+                    // Превращаем вектор картинок в NCHW тензор (на GPU)
+                    blobFromImage_gpu_nchw(processed_frames_gpu, res.gpu_nchw_buffer);
 
-                    cv::Mat temp;
-                    cv::copyMakeBorder(padded, temp,
-                        params.pad_h, target_h - new_h - params.pad_h,
-                        params.pad_w, target_w - new_w - params.pad_w,
-                        cv::BORDER_CONSTANT, cv::Scalar(114, 114, 114));
-                    padded = temp;
-                    gpu_used = true;
+                    res.use_gpu_buffer = true; // Сигнал для OnnxEngine!
+                    res.input_shape = { batch_size, 3, target_h, target_w };
+
+                    return res; // <--- УСПЕХ! Возвращаем результат, пропуская CPU код
                 }
             }
             catch (const cv::Exception& e) {

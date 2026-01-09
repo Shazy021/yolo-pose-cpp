@@ -1,11 +1,13 @@
-#pragma once
+﻿#pragma once
 
 #include <opencv2/opencv.hpp>
 #include <opencv2/dnn.hpp>
+#include <vector>
+
+namespace cv { namespace cuda { class GpuMat; } }
 
 #ifdef HAVE_OPENCV_CUDAWARPING
-#include <opencv2/cudawarping.hpp>
-#include <opencv2/cudaimgproc.hpp>
+#include <opencv2/core/cuda.hpp>
 #endif
 
 /// Letterbox transformation parameters for post-processing.
@@ -19,16 +21,46 @@ struct LetterboxParams {
     int orig_h = 0; ///< Original image height.
 };
 
-/// Result of letterbox preprocessing: tensor and transformation parameters.
+/// Preprocessing result for single frame.
+/**
+ * Contains both CPU and GPU data paths to support heterogeneous execution.
+ *
+ * **Usage**:
+ * - If `use_gpu_buffer == true`: Use `gpu_nchw_buffer` for zero-copy GPU inference.
+ * - If `use_gpu_buffer == false`: Use `input_tensor` (CPU path fallback).
+ *
+ * ONNX engine automatically selects the appropriate buffer based on `use_gpu_buffer`.
+ */
 struct PreprocessResult {
+    // CPU Data (Fallback)
 	std::vector<float> input_tensor; ///< Flattened input tensor [1,3,H,W] NCHW format.
+    
+    // GPU Data (Primary)
+    cv::cuda::GpuMat gpu_nchw_buffer; // NCHW Float32 buffer
+    bool use_gpu_buffer = false;
+
 	std::vector<std::int64_t> input_shape; ///< Tensor shape {1, 3, H, W}.
 	LetterboxParams params; ///< Letterbox transformation parameters.
 };
 
-/// Result of batch letterbox preprocessing: tensor and parameters for multiple frames.
+/// Preprocessing result for batch of frames.
+/**
+ * Batch version of PreprocessResult. All frames share the same target dimensions
+ * but may have different original sizes, so each gets its own LetterboxParams.
+ *
+ * Memory layout (NCHW format):
+ * ```
+ * [frame0_R, frame0_G, frame0_B, frame1_R, frame1_G, frame1_B, ...]
+ * where each channel is flattened H×W image
+ */
 struct BatchPreprocessResult {
+    // CPU Data (Fallback)
     std::vector<float> input_tensor; ///< Flattened batch tensor [N,3,H,W] NCHW format.
+    
+    // GPU Data (Primary)
+    cv::cuda::GpuMat gpu_nchw_buffer; ///< Contiguous GPU buffer for entire batch [N,C,H,W].
+    bool use_gpu_buffer = false; ///< True if GPU buffer is active.
+
     std::vector<int64_t> input_shape;  ///< Tensor shape {batch_size, 3, H, W}.
     std::vector<LetterboxParams> params;  ///< Transformation parameters for each frame in batch.
 };
