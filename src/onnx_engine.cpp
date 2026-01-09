@@ -10,7 +10,7 @@ OnnxEngine::OnnxEngine(const std::string& model_path)
     session_(nullptr),
     memory_info_{ Ort::MemoryInfo::CreateCpu(OrtDeviceAllocator, OrtMemTypeDefault) }
 {
-    // This list depends on how ONNX Runtime was compiled (with/without GPU support)
+    // Detect available execution providers
     std::vector<std::string> available_providers = Ort::GetAvailableProviders();
 
     std::cout << "[ONNX] Available providers: ";
@@ -73,6 +73,27 @@ OnnxEngine::OnnxEngine(const std::string& model_path)
                     gpu_enabled = true;
                     using_gpu_ = true;
                     std::cout << "[ONNX] Using CUDA ExecutionProvider (GPU)" << std::endl;
+                    
+                    // Initialize CUDA memory binding for Zero-Copy inference
+                    try {
+                        cuda_memory_info_ = Ort::MemoryInfo(
+                            "Cuda",
+                            OrtAllocatorType::OrtArenaAllocator,
+                            0, // device_id
+                            OrtMemType::OrtMemTypeDefault
+                        );
+                        cuda_memory_info_.emplace(
+                            "Cuda",
+                            OrtAllocatorType::OrtArenaAllocator,
+                            0,
+                            OrtMemType::OrtMemTypeDefault
+                        );
+                        std::cout << "[ONNX] CUDA Memory binding enabled (Zero-Copy)" << std::endl;
+                    }
+                    catch (const Ort::Exception& e) {
+                        std::cerr << "[ONNX] CUDA MemoryInfo init failed: " << e.what()
+                            << " (will use CPU buffers)" << std::endl;
+                    }
                     break;
                 }
                 catch (const Ort::Exception& e) {
@@ -149,6 +170,124 @@ OnnxOutput OnnxEngine::run(const std::vector<float>& input,
     );
 
     // Extract output tensor data and shape
+    OnnxOutput out;
+    out.data = output_tensors[0].GetTensorMutableData<float>();
+    out.shape = output_tensors[0].GetTensorTypeAndShapeInfo().GetShape();
+    return out;
+}
+
+// Single frame inference with GPU/CPU auto-selection
+OnnxOutput OnnxEngine::run(const PreprocessResult& preprocessed)
+{
+    Ort::Value input_tensor(nullptr);
+
+    // Choose data path based on availability
+    if (preprocessed.use_gpu_buffer && cuda_memory_info_.has_value()) {
+        // GPU Zero-Copy Path
+        void* d_ptr = preprocessed.gpu_nchw_buffer.cudaPtr();
+
+        size_t tensor_size = 1;
+        for (auto dim : preprocessed.input_shape) {
+            tensor_size *= static_cast<size_t>(dim);
+        }
+
+        // Create tensor pointing directly to GPU memory (no copy!)
+        input_tensor = Ort::Value::CreateTensor<float>(
+            cuda_memory_info_.value(),              // CUDA memory type
+            reinterpret_cast<float*>(d_ptr),        // GPU pointer
+            tensor_size,                            // total elements
+            preprocessed.input_shape.data(),        // shape [1, 3, H, W]
+            preprocessed.input_shape.size()
+        );
+    }
+    else {
+        // CPU PATH (Fallback)
+        size_t tensor_size = 1;
+        for (auto dim : preprocessed.input_shape) {
+            tensor_size *= static_cast<size_t>(dim);
+        }
+
+        if (preprocessed.input_tensor.size() != tensor_size) {
+            throw std::runtime_error("OnnxEngine::run: input size mismatch (CPU path)");
+        }
+
+        input_tensor = Ort::Value::CreateTensor<float>(
+            memory_info_,                           // CPU memory
+            const_cast<float*>(preprocessed.input_tensor.data()),
+            tensor_size,
+            preprocessed.input_shape.data(),
+            preprocessed.input_shape.size()
+        );
+
+        // Diagnostic message if GPU was requested but unavailable
+        if (preprocessed.use_gpu_buffer && !cuda_memory_info_.has_value()) {
+            std::cerr << "[ONNX] GPU buffer requested but CUDA memory not available, using CPU" << std::endl;
+        }
+    }
+
+    // Execute inference
+    auto output_tensors = session_.Run(
+        Ort::RunOptions{ nullptr },
+        input_names_.data(), &input_tensor, 1,
+        output_names_.data(), 1
+    );
+
+    // Extract output
+    OnnxOutput out;
+    out.data = output_tensors[0].GetTensorMutableData<float>();
+    out.shape = output_tensors[0].GetTensorTypeAndShapeInfo().GetShape();
+    return out;
+}
+
+// Batch inference with GPU/CPU auto-selection
+OnnxOutput OnnxEngine::run(const BatchPreprocessResult& preprocessed)
+{
+    Ort::Value input_tensor(nullptr);
+
+    if (preprocessed.use_gpu_buffer && cuda_memory_info_.has_value()) {
+        // GPU Zero-Copy Batch Path
+        void* d_ptr = preprocessed.gpu_nchw_buffer.cudaPtr();
+
+        size_t tensor_size = 1;
+        for (auto dim : preprocessed.input_shape) {
+            tensor_size *= static_cast<size_t>(dim);
+        }
+
+        input_tensor = Ort::Value::CreateTensor<float>(
+            cuda_memory_info_.value(),
+            reinterpret_cast<float*>(d_ptr),
+            tensor_size,
+            preprocessed.input_shape.data(),  // [Batch, 3, H, W]
+            preprocessed.input_shape.size()
+        );
+    }
+    else {
+        // CPU Batch Fallback
+        size_t tensor_size = 1;
+        for (auto dim : preprocessed.input_shape) {
+            tensor_size *= static_cast<size_t>(dim);
+        }
+
+        if (preprocessed.input_tensor.size() != tensor_size) {
+            throw std::runtime_error("OnnxEngine::run: batch input size mismatch");
+        }
+
+        input_tensor = Ort::Value::CreateTensor<float>(
+            memory_info_,
+            const_cast<float*>(preprocessed.input_tensor.data()),
+            tensor_size,
+            preprocessed.input_shape.data(),
+            preprocessed.input_shape.size()
+        );
+    }
+
+    // Execute batch inference
+    auto output_tensors = session_.Run(
+        Ort::RunOptions{ nullptr },
+        input_names_.data(), &input_tensor, 1,
+        output_names_.data(), 1
+    );
+
     OnnxOutput out;
     out.data = output_tensors[0].GetTensorMutableData<float>();
     out.shape = output_tensors[0].GetTensorTypeAndShapeInfo().GetShape();
