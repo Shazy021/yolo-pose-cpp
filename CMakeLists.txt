@@ -4,54 +4,34 @@ project(PoseEstimation LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# -----------------------------
-# ONNX Runtime root detection
-# -----------------------------
-# Priority:
-# 1) -DONNXRUNTIME_DIR=...
-# 2) env ONNXRUNTIME_DIR
-# 3) third_party/onnxruntime (local folder)
-if(NOT DEFINED ONNXRUNTIME_DIR)
-    if(DEFINED ENV{ONNXRUNTIME_DIR})
-        set(ONNXRUNTIME_DIR $ENV{ONNXRUNTIME_DIR})
-    else()
-        # Fallback to HARDCODED paths for local Windows development
-        set(CUDNN_DIR "C:/Program Files/NVIDIA/CUDNN/v9.17")
-        set(ONNXRUNTIME_DIR "${CMAKE_SOURCE_DIR}/third_party/onnxruntime-win-x64-gpu-1.23.2")
-    endif()
-endif()
 
-message(STATUS "ONNXRUNTIME_DIR = ${ONNXRUNTIME_DIR}")
+# ==============================================================================
+# Dependencies
+# ==============================================================================
 
-set(ONNXRT_INCLUDE_DIR "${ONNXRUNTIME_DIR}/include")
-set(ONNXRT_LIB_DIR     "${ONNXRUNTIME_DIR}/lib")
+# OpenCV: Required for image processing and visualization
+# Path is provided via CMakePresets.json (OpenCV_DIR variable)
+find_package(OpenCV REQUIRED)
 
-# Look for onnxruntime library (name is the same, extension is platform-dependent)
+# ONNX Runtime: Required for model inference
+# ONNXRUNTIME_ROOT is provided via CMakePresets.json
 find_library(ONNXRT_LIBRARY
     NAMES onnxruntime
-    HINTS "${ONNXRT_LIB_DIR}" "${ONNXRUNTIME_DIR}/lib64"
+    HINTS "${ONNXRUNTIME_ROOT}/lib"
     REQUIRED
 )
 
+set(ONNXRT_INCLUDE_DIR "${ONNXRUNTIME_ROOT}/include")
+
+# Log dependency paths for debugging
+message(STATUS "OpenCV version: ${OpenCV_VERSION}")
+message(STATUS "OpenCV directory: ${OpenCV_DIR}")
+message(STATUS "ONNX Runtime: ${ONNXRUNTIME_ROOT}")
 message(STATUS "ONNX Runtime library: ${ONNXRT_LIBRARY}")
 
-# -----------------------------
-# OpenCV
-# -----------------------------
-if(WIN32)
-    # Adjust this path if you installed OpenCV differently
-    set(OpenCV_DIR "C:/opencv/build_cuda/install")
-endif()
-
-find_package(OpenCV REQUIRED)
-
-message(STATUS "OpenCV version: ${OpenCV_VERSION}")
-message(STATUS "OpenCV libs: ${OpenCV_LIBS}")
-message(STATUS "OpenCV include: ${OpenCV_INCLUDE_DIRS}")
-
-# -----------------------------
-# Executable target
-# -----------------------------
+# ==============================================================================
+# Executable Target
+# ==============================================================================
 add_executable(PoseEstimation
     src/main.cpp
     src/onnx_engine.cpp
@@ -63,11 +43,10 @@ add_executable(PoseEstimation
 )
 
 # Include paths
-target_include_directories(PoseEstimation
-    PRIVATE
-        ${OpenCV_INCLUDE_DIRS}
-        ${ONNXRT_INCLUDE_DIR}
-        ${CMAKE_SOURCE_DIR}/include
+target_include_directories(PoseEstimation PRIVATE
+    ${OpenCV_INCLUDE_DIRS}
+    ${ONNXRT_INCLUDE_DIR}
+    ${CMAKE_SOURCE_DIR}/include
 )
 
 # Link libraries
@@ -77,66 +56,33 @@ target_link_libraries(PoseEstimation
         ${ONNXRT_LIBRARY}
 )
 
-# -----------------------------
-# Post-build steps (Windows)
-# -----------------------------
+# ==============================================================================
+# Platform-Specific Configuration (Windows)
+# ==============================================================================
 if(WIN32)
-    # Copy models directory next to the executable
+    # Copy data assets (models, test images) to output directory
+    file(COPY "${CMAKE_SOURCE_DIR}/models" DESTINATION "${CMAKE_BINARY_DIR}")
+    file(COPY "${CMAKE_SOURCE_DIR}/data" DESTINATION "${CMAKE_BINARY_DIR}")
+
+    # Copy ONNX Runtime DLLs to output directory
+    # without modifying system PATH
     add_custom_command(TARGET PoseEstimation POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_directory
-                "${CMAKE_SOURCE_DIR}/models"
-                "$<TARGET_FILE_DIR:PoseEstimation>/models"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${ONNXRUNTIME_ROOT}/lib/onnxruntime.dll"
+            "$<TARGET_FILE_DIR:PoseEstimation>"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${ONNXRUNTIME_ROOT}/lib/onnxruntime_providers_cuda.dll"
+            "$<TARGET_FILE_DIR:PoseEstimation>"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${ONNXRUNTIME_ROOT}/lib/onnxruntime_providers_shared.dll"
+            "$<TARGET_FILE_DIR:PoseEstimation>"
+        COMMENT "Copying ONNX Runtime DLLs to output directory"
     )
 
-    # Copy data directory next to the executable
-    add_custom_command(TARGET PoseEstimation POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_directory
-                "${CMAKE_SOURCE_DIR}/data"
-                "$<TARGET_FILE_DIR:PoseEstimation>/data"
+    # Configure Visual Studio debugger environment
+    # Adds OpenCV and cuDNN paths to PATH when running from VS (F5)
+    # CUDNN_BIN_DIR is provided via CMakePresets.json
+    set_target_properties(PoseEstimation PROPERTIES 
+        VS_DEBUGGER_ENVIRONMENT "PATH=${ONNXRUNTIME_ROOT}/lib;${CUDNN_BIN_DIR};$ENV{PATH}"
     )
-
-    # Copy onnxruntime.dll next to the executable
-    add_custom_command(TARGET PoseEstimation POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy
-                "${ONNXRT_LIB_DIR}/onnxruntime.dll"
-                "$<TARGET_FILE_DIR:PoseEstimation>/onnxruntime.dll"
-    )
-
-    # Copy CUDA execution provider DLLs if available
-    if(EXISTS "${ONNXRT_LIB_DIR}/onnxruntime_providers_cuda.dll")
-        add_custom_command(TARGET PoseEstimation POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                    "${ONNXRT_LIB_DIR}/onnxruntime_providers_cuda.dll"
-                    "$<TARGET_FILE_DIR:PoseEstimation>/onnxruntime_providers_cuda.dll"
-        )
-        add_custom_command(TARGET PoseEstimation POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                    "${ONNXRT_LIB_DIR}/onnxruntime_providers_shared.dll"
-                    "$<TARGET_FILE_DIR:PoseEstimation>/onnxruntime_providers_shared.dll"
-        )
-        message(STATUS "ONNX Runtime CUDA DLLs will be copied")
-    endif()
-
-    # copy ALL cuDNN 9 DLLs
-    set(CUDNN_BIN_DIR "${CUDNN_DIR}/bin/12.9")
-    
-    if(EXISTS "${CUDNN_BIN_DIR}/cudnn64_9.dll")
-        file(GLOB CUDNN_DLLS "${CUDNN_BIN_DIR}/cudnn*64_9.dll")
-        
-        # Copy each found DLL to the executable directory
-        foreach(dll ${CUDNN_DLLS})
-            get_filename_component(dll_name ${dll} NAME)
-            add_custom_command(TARGET PoseEstimation POST_BUILD
-                COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                        "${dll}"
-                        "$<TARGET_FILE_DIR:PoseEstimation>/${dll_name}"
-            )
-        endforeach()
-        
-        message(STATUS "cuDNN 9 DLLs will be copied from ${CUDNN_BIN_DIR}")
-        message(STATUS "Found cuDNN DLLs: ${CUDNN_DLLS}")
-    else()
-        message(WARNING "cuDNN DLLs not found at ${CUDNN_BIN_DIR}")
-    endif()
-
 endif()

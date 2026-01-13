@@ -9,12 +9,30 @@
             "installDir": "${sourceDir}/out/install/${presetName}",
             "cacheVariables": {
                 "CMAKE_C_COMPILER": "cl.exe",
-                "CMAKE_CXX_COMPILER": "cl.exe"
+                "CMAKE_CXX_COMPILER": "cl.exe",
+                "OpenCV_DIR": "C:/opencv/build_cuda/install",
+                "ONNXRUNTIME_ROOT": "${sourceDir}/third_party/onnxruntime-win-x64-gpu-1.23.2",
+                "CUDNN_BIN_DIR": "C:/Program Files/NVIDIA/CUDNN/v9.17/bin/12.9"
             },
             "condition": {
                 "type": "equals",
                 "lhs": "${hostSystemName}",
                 "rhs": "Windows"
+            }
+        },
+        {
+            "name": "linux-release",
+            "displayName": "Linux Release",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/out/build/${presetName}",
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Linux"
+            },
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "ONNXRUNTIME_ROOT": "/opt/onnxruntime"
             }
         },
         {
@@ -56,6 +74,20 @@
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Release"
             }
+        }
+    ],
+    "buildPresets": [
+        {
+            "name": "linux-release",
+            "configurePreset": "linux-release"
+        },
+        {
+            "name": "x64-release",
+            "configurePreset": "x64-release"
+        },
+        {
+            "name": "x64-debug",
+            "configurePreset": "x64-debug"
         }
     ]
 }
