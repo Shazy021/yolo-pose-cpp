@@ -1,13 +1,24 @@
 services:
   pose:
     build: .
-    image: pose-estimation-cpu:latest
+    image: pose-estimation-gpu:latest
     environment:
       - NO_DISPLAY=1 
-    container_name: pose_estimation_cpu
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    container_name: pose_estimation_gpu
     volumes:
-      - ./models:/app/models:rw
-      - ./data:/app/data:ro
-      - ./output:/app/output:rw
+      - ./models:/app/models:rw # ONNX models directory
+      - ./data:/app/data:ro # Input images/videos (read-only)
+      - ./output:/app/output:rw # Output results directory
+    # GPU resource allocation
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all # Use all available GPUs
+              capabilities: [gpu] # Enable GPU capabilities
     stdin_open: true
     tty: true
+    restart: unless-stopped
